@@ -1,0 +1,17 @@
+tensorboardX
+numpy
+scikit-learn
+multipledispatch
+pandas
+tqdm
+jupyter
+psycopg2-binary
+pyyaml
+anytree
+matplotlib
+openpyxl
+seaborn
+gensim
+gdown
+unidecode
+pympler

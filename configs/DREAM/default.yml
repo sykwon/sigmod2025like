@@ -1,0 +1,17 @@
+data_name: DBLP
+workload: CLIQUE
+seed: 0
+n_epoch: 400
+ch_es: 500
+rnn_hs: 128
+pred_hs: 256
+p_test: 0.1
+p_val: 0.1
+p_train: 1.0
+n_pred_layer: 5
+batch_size: 64
+learning_rate: 1.0e-4
+l2: 1.0e-6
+patience: 20
+packed: false
+tag: ""

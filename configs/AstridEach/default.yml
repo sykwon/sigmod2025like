@@ -1,0 +1,15 @@
+batch_size: 128
+data_name: DBLP
+workload: Astrid
+learning_rate: 0.001
+est_epoch: 256
+p_train: 1.0
+max_str_size: 8
+emb_dim: 256
+emb_epoch: 32
+emb_batch_size: 128
+emb_lr: 0.001
+seed: 0
+patience: 20
+packed: false
+tag: ""

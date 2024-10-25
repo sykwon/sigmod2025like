@@ -1,0 +1,4 @@
+data_name = 'AUTHOR' workload = 'Astrid' hr_model_size = '623.30 KB' model_size = 638259
+data_name = 'DBLP' workload = 'Astrid' hr_model_size = '683.30 KB' model_size = 699699
+data_name = 'GENE' workload = 'Astrid' hr_model_size = '329.30 KB' model_size = 337203
+fn_desc = 'suffix', build_time = 67.6256651878357

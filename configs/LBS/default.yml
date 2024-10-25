@@ -1,0 +1,8 @@
+data_name: DBLP
+workload: CLIQUE
+N: 5
+L: 10
+PT: 20
+max_n_sample: 100
+seed: 0
+tag: ""

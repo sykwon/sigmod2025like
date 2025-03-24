@@ -43,13 +43,13 @@ function RUN_MODEL_CMD {
         return
     fi
     echo "CUDA_VISIBLE_DEVICES=2 $CMD --ratio $r --tag R$r --seed $s"
-    eval "CUDA_VISIBLE_DEVICES=2 $CMD --ratio $r --tag R$r --seed $s"
+    # eval "CUDA_VISIBLE_DEVICES=2 $CMD --ratio $r --tag R$r --seed $s"
 }
 workload="CLIQUE"
-for data in "GENE" "AUTHOR" "DBLP"; do
+for data in "DBLP"; do
     for s in 0 1 2; do
 	    for r in 0.2 0.4 0.6 0.8; do
-		for model in "CLIQUE" "CLIQUE-PACK"; do
+		for model in "CLIQUE-PACK"; do
 		    RUN_MODEL_CMD 
 		done
 	    done

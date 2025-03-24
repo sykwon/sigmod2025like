@@ -526,14 +526,40 @@ void data_gen_alg_LEADER_SR(u32string* db, int n_db, u32string* qrys, int n_qrys
     cumulatively_add_value(*time_dict, "total", total_time);
 }
 
-void data_gen_alg_LEADER_S(u32string* db, int n_db, u32string* qrys, int n_qrys, vector<tuple<string, double>>* time_dict, vector<double>& q_times, AUG_TYPE aug_type, vector<vector<int>>& output) {
-    // LEADER sorted version
-    if (aug_type == AUG_TYPE::BOTH_AUG) {
-        data_gen_alg_LEADER_S(db, n_db, qrys, n_qrys, time_dict, q_times, AUG_TYPE::PREFIX_AUG, output);
-        data_gen_alg_LEADER_S(db, n_db, qrys, n_qrys, time_dict, q_times, AUG_TYPE::SUFFIX_AUG, output);
-        return;
+vector<int> o_type2order(int o_type) {
+    assert(o_type > 0);
+    vector<int> order;
+    int idx;
+    int n_tokens = 1;
+    int o_type_cpy = o_type;
+    while (o_type > 0) {
+        o_type /= 10;
+        n_tokens += 1;
     }
-    assert(aug_type != AUG_TYPE::BOTH_AUG);
+    o_type = o_type_cpy;
+
+    while (o_type > 0) {
+        idx = o_type % 10;
+        order.push_back(idx);
+        if (idx == 1) {
+            order.push_back(0);  // prefix selection
+        }
+        if (idx == n_tokens - 1) {
+            order.push_back(n_tokens);  // suffix selection
+        }
+        o_type /= 10;
+    }
+    reverse(order.begin(), order.end());
+    return order;
+}
+
+void data_gen_alg_LEADER_S(u32string* db, int n_db, u32string* qrys, int n_qrys, vector<tuple<string, double>>* time_dict, vector<double>& q_times, AUG_TYPE aug_type, vector<vector<int>>& output, int o_type = 0) {
+    // o_type indicates a join order
+    // For example, consider a join "A join1 B join2 C join3 D"
+    // When "o_type == 213", this algorithm performs "((A join1 (B join2 C)) join3 D)"
+    // There is a special case "o_type == 0" which it works in left-to-right join only
+    // The "o_type" works only when is_share is false"
+
     q_times.resize(n_qrys, 0.0);
     output.resize(n_qrys, vector<int>(0));
 
@@ -669,7 +695,23 @@ void data_gen_alg_LEADER_S(u32string* db, int n_db, u32string* qrys, int n_qrys,
             }
         }
 
-    } else {  // not share
+    } else if (o_type != 0) {  // join order
+        vector<int> order = o_type2order(o_type);
+        for (int qid = 0; qid < n_qrys; ++qid) {
+            oid = sort_indexes[qid];
+            qry = qrys + qid;
+            q_time1 = system_clock::now();
+            card = tree->find_card_with_plan(*qry, order);
+            q_time2 = system_clock::now();
+            q_instance_time = duration<double>(q_time2 - q_time1).count();
+            q_times[oid] = q_instance_time;
+            output[oid].push_back(card);
+            if (qid % 10 == 0) {
+                progress = (float)(qid + 1) / (float)n_qrys * 100;
+                bar.set_progress(progress);
+            }
+        }
+    } else {  // not share left-to-right only
         for (int qid = 0; qid < n_qrys; ++qid) {
             oid = sort_indexes[qid];
             qry = qrys + qid;
@@ -704,7 +746,7 @@ void data_gen_alg_LEADER_S(u32string* db, int n_db, u32string* qrys, int n_qrys,
                 // store time
                 q_instance_time += duration<double>(q_time2 - q_time1).count();
                 if (curr_len == q_len) {
-                    q_times[oid] += q_instance_time;  // cumulative
+                    q_times[oid] = q_instance_time;
                     q_instance_time = 0;
                     if (aug_type == AUG_TYPE::BASE) {
                         output[oid].push_back(card);

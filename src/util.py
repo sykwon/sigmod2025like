@@ -1892,7 +1892,7 @@ def set_params_setting_dict(args, param_setting_dict):
 
 
 def add_just_params(args):
-    if 'ratio' in args:
+    if 'ratio' in args and args.ratio != 1:
         ratio = args.ratio
         args.model_name += f'-{int(ratio*100):03d}'
     else:

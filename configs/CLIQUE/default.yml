@@ -23,4 +23,5 @@ max_entry_ratio: 3.12
 ratio: 1.0
 batch_norm: True
 crh: True
+table_only: false
 tag: ""

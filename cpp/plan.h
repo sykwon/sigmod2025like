@@ -3,41 +3,12 @@
 
 #include <stdexcept>
 
+#include "cond.h"
 #include "index.h"
+#include "table.h"
 #include "util.h"
 
 using namespace std;
-
-enum Symbol {
-    IDENTIFIER,
-    NUMBER,
-    PLUS,
-    MINUS,
-    COMPEQ,
-    EQ,
-    COMPGEQ,
-    GEQ,
-    COMPLEQ,
-    LEQ,
-    GT,
-    LT,
-    AND
-};
-
-const char* SymbolStrings[] = {
-    "IDENTIFIER",
-    "NUMBER",
-    "PLUS",
-    "MINUS",
-    "COMPEQ",
-    "EQ",
-    "COMPGEQ",
-    "GEQ",
-    "COMPLEQ",
-    "LEQ",
-    "GT",
-    "LT",
-    "AND"};
 
 enum JoinOp {
     READ,
@@ -50,132 +21,13 @@ const char* JoinOpStrings[] = {
     "Select",
     "Join"};
 
-enum CondOp {
-    PREFIX,
-    SUFFIX,
-    SUBSTR
-};
-
-const char* CondOpStrings[] = {
-    "Prefix",
-    "Suffix",
-    "Substr"};
-
-class LTable {
-public:
-    vector<int>* L;
-    int n_pos;
-    int count = 0;
-    int* s_lens;
-    bool view = false;
-
-    LTable(vector<int>* L, int n_pos, int* s_lens, bool view) {
-        this->L = L;
-        this->n_pos = n_pos;
-        this->s_lens = s_lens;
-        this->view = view;
-    }
-
-    void set_count(int count) {
-        this->count = count;
-    }
-
-    ~LTable() {
-        if (this->view) {
-            delete L;
-        }
-    }
-};
-
-class Condition {
-public:
-    int number;
-    int identifier;
-    bool percent;
-    bool left_end;
-    bool right_end;
-    bool is_last;
-    CondOp cond_op;
-
-    Condition(int number, bool percent, bool left_end, bool right_end, bool is_last, CondOp cond_op) {
-        this->number = number;
-        this->percent = percent;
-        this->left_end = left_end;
-        this->right_end = right_end;
-        this->is_last = is_last;
-        this->cond_op = cond_op;
-    }
-
-    ~Condition() {
-    }
-
-    void set_identifier(int num1) {  // for prefix
-        this->identifier = num1;
-    }
-
-    void set_identifier(int num1, int num2) {  // for suffix and join
-        this->identifier = num2 - num1;
-    }
-
-    inline int l_val() {
-        return this->number;
-    }
-
-    inline int r_val() {
-        return this->identifier;
-    }
-
-    bool eval() {
-        if (this->percent) {
-            return this->l_val() <= this->r_val();
-        } else {
-            return this->l_val() == this->r_val();
-        }
-    }
-
-    int eval_comp() {
-        if (this->l_val() == this->r_val()) {
-            return Symbol::EQ;
-        } else if (this->l_val() > this->r_val()) {
-            return Symbol::GT;
-        } else {
-            return Symbol::LT;
-        }
-    }
-
-    void print(int level = 0) {
-        for (int i = 0; i < level; i++) {
-            cout << "\t";
-        }
-        cout << CondOpStrings[this->cond_op] << ": " << this->number;
-
-        if (this->percent) {
-            cout << " <= ";
-        } else {
-            cout << " == ";
-        }
-
-        switch (this->cond_op) {
-            case CondOp::PREFIX:
-                cout << " L_1.pos" << endl;
-                break;
-            case CondOp::SUFFIX:
-                cout << " L_m.len - L_m.pos" << endl;
-                break;
-            case CondOp::SUBSTR:
-                cout << " L_2.pos - L_1.pos" << endl;
-                break;
-            default:
-                break;
-        }
-    }
-};
+class LEADERpTree;
 
 class PlanNode {
 public:
     JoinOp op;  // read, select, join
     Condition* cond = nullptr;
-    LTable* table = nullptr;
+    Posting* table = nullptr;
     PlanNode* l_child = nullptr;
     PlanNode* r_child = nullptr;
 
@@ -203,7 +55,7 @@ public:
         }
     }
 
-    void set_table(LTable* table) {
+    void set_table(Posting* table) {
         this->table = table;
     }
 
@@ -222,218 +74,61 @@ public:
         this->r_child = r_child;
     }
 
-    LTable* op_select() {  // prefix & suffix
+    Posting* op_select() {
         assert(this->l_child);
-        LTable* input_table = this->l_child->execute_plan();
+        Posting* input_posting = this->l_child->execute_plan();
         Condition* cond = this->cond;
-        vector<int>& input_list = *input_table->L;
-        vector<int>& output_list = *(new vector<int>());
-        int idx = 0;
-        int id;
-        int n;
-        int pos1;
-        int pos2;
-        bool is_last = cond->is_last;
-        int n_pos = input_table->n_pos;
+        CondOp& cond_op = cond->cond_op;
+        // vector<int>& output_list = *(new vector<int>());
+        Posting* output_posting = new Posting(false, true);
+        output_posting->beta = input_posting->beta;
+        int n_pos = input_posting->is_single ? 1 : 2;
         assert(n_pos == 1 || n_pos == 2);
-        int* s_lens = input_table->s_lens;
-        int s_len;
-        int curr_n_idx;
-        int count = 0;
 
-        while (idx < (int)input_list.size()) {
-            id = input_list[idx++];
-            n = input_list[idx++];
+        int alpha = cond->alpha;
+        u32string op_token(alpha + cond->percent, U'_');
 
-            curr_n_idx = -1;
-            if (this->cond->cond_op == CondOp::PREFIX) {
-                for (int i = 0; i < n; ++i) {
-                    pos1 = input_list[idx + i * n_pos];
-                    cond->set_identifier(pos1);
-                    if (!cond->percent) {  // fixed-length
-                        if (cond->eval()) {
-                            if (curr_n_idx < 0) {
-                                ++count;
-                                if (is_last) {
-                                    break;
-                                }
-                                output_list.push_back(id);
-                                curr_n_idx = output_list.size();
-                                output_list.push_back(0);
-                            }
-                            pos2 = input_list[idx + (i + 1) * n_pos - 1];
-                            ++output_list[curr_n_idx];
-                            output_list.push_back(pos2);
-                        }
-                    } else {  // percent exists
-                        if (cond->eval()) {
-                            ++count;
-                            if (!is_last) {
-                                output_list.push_back(id);
-                                output_list.push_back(n - i);
-                                while (i < n) {
-                                    pos2 = input_list[idx + (i + 1) * n_pos - 1];
-                                    output_list.push_back(pos2);
-                                    ++i;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-            } else {
-                s_len = s_lens[id];
-                for (int i = 0; i < n; ++i) {
-                    pos2 = input_list[idx + (i + 1) * n_pos - 1];
-                    cond->set_identifier(pos2, s_len);
-                    if (!cond->percent) {  // fixed-length
-                        if (cond->eval()) {
-                            if (curr_n_idx < 0) {
-                                ++count;
-                                if (is_last) {
-                                    break;
-                                }
-                                output_list.push_back(id);
-                                curr_n_idx = output_list.size();
-                                output_list.push_back(0);
-                            }
-                            pos1 = input_list[idx + i * n_pos];
-                            ++output_list[curr_n_idx];
-                            output_list.push_back(pos1);
-                        }
-                    } else {  // percent exists
-                        if (cond->eval()) {
-                            if (curr_n_idx < 0) {
-                                ++count;
-                                if (!is_last) {
-                                    output_list.push_back(id);
-                                    curr_n_idx = output_list.size();
-                                    output_list.push_back(0);
-                                } else {
-                                    break;
-                                }
-                            }
+        if (cond->percent) {
+            op_token[0] = U'%';
+        }
+        bool opt_next = cond->opt_next;
+        bool opt_last = cond->is_last;
 
-                            if (!is_last) {
-                                output_list[curr_n_idx] += 1;
-                                pos1 = input_list[idx + i * n_pos];
-                                output_list.push_back(pos1);
-                            }
-                        }
-                    }
-                }
-            }
-            idx += n * n_pos;
+        assert(input_posting->is_single);
+
+        if (cond_op == CondOp::PREFIX) {
+            output_posting = get_prefix_plists(input_posting, op_token, opt_next, opt_last);
+        } else {
+            output_posting = get_suffix_plists(input_posting, op_token, opt_next, opt_last);
         }
 
-        n_pos = 1;
-
-        LTable* output_table = new LTable(&output_list, n_pos, s_lens, true);
-        output_table->count = count;
-
-        delete input_table;
-        return output_table;
+        if (input_posting->view) {
+            delete input_posting;
+        }
+        return output_posting;
     }
 
-    LTable* op_join() {
+    Posting* op_join() {
         assert(this->l_child);
         assert(this->r_child);
-        LTable* l_table = this->l_child->execute_plan();
-        LTable* r_table = this->r_child->execute_plan();
+        Posting* l_table = this->l_child->execute_plan();
+        Posting* r_table = this->r_child->execute_plan();
 
         Condition* cond = this->cond;
-        bool left_end = cond->left_end;
-        bool right_end = cond->right_end;
-        vector<int>& p_list1 = *l_table->L;
-        vector<int>& p_list2 = *r_table->L;
-        vector<int>& output_list = *(new vector<int>());
-        int idx1 = 0;
-        int idx2 = 0;
-        int id1;
-        int id2;
-        int n1;
-        int n2;
-        int pos1;
-        int pos2;
-        int pos3;
-        int pos4;
-        int n_pos1 = l_table->n_pos;
-        int n_pos2 = r_table->n_pos;
-        assert(n_pos1 == 1 || n_pos1 == 2);
-        assert(n_pos2 == 1 || n_pos2 == 2);
-        int* s_lens = l_table->s_lens;
-        int curr_n_idx;
-        int count = 0;
+        Posting* output_table;
+        output_table = join_two_plists_multi(l_table, r_table, cond);
 
-        while (idx1 < (int)p_list1.size() && idx2 < (int)p_list2.size()) {
-            id1 = p_list1[idx1];
-            id2 = p_list2[idx2];
-
-            if (id1 < id2) {
-                n1 = p_list1[++idx1];
-                idx1 += n1 * n_pos1 + 1;
-            } else if (id1 > id2) {
-                n2 = p_list2[++idx2];
-                idx2 += n2 * n_pos2 + 1;
-            } else {
-                n1 = p_list1[++idx1];
-                n2 = p_list2[++idx2];
-                idx1 += 1;
-                idx2 += 1;
-                curr_n_idx = -1;
-
-                for (int i1 = 0; i1 < n1; ++i1) {
-                    pos1 = p_list1[idx1 + i1 * n_pos1];
-                    pos2 = p_list1[idx1 + (i1 + 1) * n_pos1 - 1];
-                    for (int i2 = 0; i2 < n2; ++i2) {
-                        pos3 = p_list2[idx2 + i2 * n_pos2];
-                        cond->set_identifier(pos2, pos3);
-                        if (cond->eval()) {
-                            if (curr_n_idx < 0) {
-                                ++count;
-                                output_list.push_back(id1);
-                                curr_n_idx = output_list.size();
-                                output_list.push_back(0);
-                            }
-                            output_list[curr_n_idx] += 1;
-                            pos4 = p_list2[idx2 + (i2 + 1) * n_pos2 - 1];
-                            if (!left_end) {
-                                output_list.push_back(pos1);
-                            }
-                            if (!right_end) {
-                                output_list.push_back(pos4);
-                            }
-                        }
-                    }
-                }
-                idx1 += n1 * n_pos1;
-                idx2 += n2 * n_pos2;
-            }
+        if (l_table->view) {
+            delete l_table;
         }
-
-        int n_pos = 0;
-        if (!left_end) {
-            ++n_pos;
+        if (r_table->view) {
+            delete r_table;
         }
-        if (!right_end) {
-            ++n_pos;
-        }
-
-        delete l_table;
-        delete r_table;
-
-        // cout << "left end: " << left_end << endl;
-        // cout << "right end: " << right_end << endl;
-        // cout << "[join Header] ";
-        // print_vector(H);
-
-        LTable* output_table = new LTable(&output_list, n_pos, s_lens, true);
-        output_table->count = count;
 
         return output_table;
     }
 
-    LTable* execute_plan() {
+    Posting* execute_plan() {
         switch (this->op) {
             case JoinOp::READ:
                 assert(this->table);
@@ -542,6 +237,34 @@ vector<bool> order2right_ends(const vector<int>& order) {
     return output;
 }
 
+vector<bool> order2is_nexts(const vector<int>& order, const vector<u32string>& op_tokens) {
+    vector<bool> output;
+    int m = order.size() - 1;
+    int o1;
+    int o2;
+    // int count;
+    u32string next_op_token;
+    for (size_t i = 0; i < order.size(); i++) {
+        o1 = order[i];
+        next_op_token = U"";
+        for (size_t j = i + 1; j < order.size(); j++) {
+            o2 = order[j];
+            if (o2 != 0 && o2 != m) {
+                next_op_token = op_tokens[o2];
+                break;
+            }
+        }
+        if (o1 == 0) {
+            output.push_back(false);
+        } else if (o1 == m) {
+            output.push_back(false);
+        } else {
+            output.push_back(next_op_token[0] == U'%');  // next_op_token contains '%'
+        }
+    }
+    return output;
+}
+
 vector<int> lens2idx(vector<int>& lengths) {
     vector<int> output;
     output.push_back(-1);
@@ -573,7 +296,7 @@ vector<int> lens2idx(vector<int>& lengths) {
 class TreePlan {
 public:
     PlanNode* root = nullptr;
-    vector<LTable*> tables;
+    vector<Posting*> tables;
 
     TreePlan() {}
 
@@ -581,7 +304,7 @@ public:
         delete root;
     }
 
-    void set_LTables(const vector<LTable*>& tables) {
+    void set_Postings(const vector<Posting*>& tables) {
         this->tables = tables;
     }
 
@@ -601,6 +324,7 @@ public:
         int idx;
         vector<bool> left_ends = order2left_ends(order);
         vector<bool> right_ends = order2right_ends(order);
+        vector<bool> is_nexts = order2is_nexts(order, op_tokens);
         // cout << "[left_ends] ";
         // print_vector(left_ends);
         // cout << "[right_ends] ";
@@ -635,7 +359,7 @@ public:
 
             if (idx == 0) {  // prefix select
                 if (op_token != U"%") {
-                    cond = new Condition(alpha + 1, percent, left_ends[i], right_ends[i], i == m, CondOp::PREFIX);
+                    cond = new Condition(alpha + 1, alpha, percent, left_ends[i], right_ends[i], is_nexts[i], i == m, CondOp::PREFIX);
                     node = new PlanNode(JoinOp::SELECT, cond);
                     node->add_child(L_nodes[1]);
                     L_nodes[1] = node;
@@ -644,7 +368,7 @@ public:
                 if (op_token != U"%") {
                     token = tokens[idx - 1];
                     beta = token.size();
-                    cond = new Condition(alpha + beta - 1, percent, left_ends[i], right_ends[i], i == m, CondOp::SUFFIX);
+                    cond = new Condition(alpha + beta - 1, alpha, percent, left_ends[i], right_ends[i], is_nexts[i], i == m, CondOp::SUFFIX);
                     node = new PlanNode(JoinOp::SELECT, cond);
                     node->add_child(L_nodes.back());
                     L_nodes.back() = node;
@@ -652,7 +376,7 @@ public:
             } else {  // join
                 token = tokens[idx - 1];
                 beta = token.size();
-                cond = new Condition(alpha + beta, percent, left_ends[i], right_ends[i], i == m, CondOp::SUBSTR);
+                cond = new Condition(alpha + beta, alpha, percent, left_ends[i], right_ends[i], is_nexts[i], i == m, CondOp::SUBSTR);
                 node = new PlanNode(JoinOp::JOIN, cond);
                 jidx1 = join_idx[idx];
                 jidx2 = join_idx[idx + 1];
@@ -670,10 +394,10 @@ public:
 
     int find_card() {
         int card;
-        LTable* res;
+        Posting* res;
         assert(this->root);
         res = this->root->execute_plan();
-        card = res->count;
+        card = res->inv_list[0];
         delete res;
         return card;
     }

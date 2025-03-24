@@ -62,6 +62,9 @@ if not args.crh:
 if args.pack_all:
     args.model_name += "-ALL"
 
+if args.table_only:
+    args.model_name = "TABLE"
+
 
 args.tag = os.path.join(args.tag, args.model_name)
 

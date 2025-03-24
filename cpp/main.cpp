@@ -12,8 +12,8 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    if (!(argc == 6)) {
-        cout << "usage: <alg> <data_name> <workload> <query_key> <is_aug>" << endl;
+    if (!(argc == 6 || argc == 7)) {
+        cout << "usage: <alg> <data_name> <workload> <query_key> <is_aug> <trial=0>" << endl;
         cout << "input: ";
         for (int i = 1; i < argc; ++i) {
             if (i > 1) cout << " ";
@@ -28,10 +28,15 @@ int main(int argc, char* argv[]) {
     string query_key = argv[4];
     string out_query_key = query_key;
     AUG_TYPE aug_type = static_cast<AUG_TYPE>(stoi(argv[5]));
+    int trial = 0;
+    if (argc == 7) {
+        trial = stoi(argv[6]);
+    }
 
     if (aug_type == AUG_TYPE::PREFIX_AUG) {
         out_query_key = query_key + "_P";
     }
+    out_query_key = out_query_key + "/" + to_string(trial);
 
     // input paths
     string db_path = "data/" + data_name + "/" + data_name + ".txt";
@@ -100,9 +105,17 @@ int main(int argc, char* argv[]) {
         }
 
         default:
-            cout << "Invaild alg name: " << alg_name << endl;
-            return 1;
+            if (alg_name.find("plan") != std::string::npos) {
+                int o_type = stoi(alg_name.substr(4));
+                // cout << "o_type: " << o_type << endl;
 
+                is_bin_srch = true;  // BinSrch "plan supports bineary search only"
+                is_share = false;    // SH
+                data_gen_alg_LEADER_S(db, n_db, qrys, n_qrys, &time_dict, q_times, aug_type, res_vector, o_type);
+            } else {
+                cout << "Invaild alg name: " << alg_name << endl;
+                return 1;
+            }
             break;
     }
 

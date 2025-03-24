@@ -3,6 +3,7 @@
 model=${1}
 data=${2}
 workload=${3}
+trial=${4:-0}
 
 function RUN_MODEL_CMD {
     if [[ "$model" == "LBS" ]]; then
@@ -35,6 +36,8 @@ function RUN_MODEL_CMD {
         CMD="python -u main_LPLM.py -d $data -w $workload"
     elif [[ "$model" == "CLIQUE-PACK" ]]; then 
         CMD="python -u main_CLIQUE.py -d $data --packed -w $workload"
+    elif [[ "$model" == "TABLE" ]]; then 
+        CMD="python -u main_CLIQUE.py -d $data -w $workload --table-only"
     elif [[ "$model" == "CLIQUE-PACK-ALL" ]]; then
         CMD="python -u main_CLIQUE.py -d $data --packed -w $workload --pack-all"
 
@@ -46,12 +49,13 @@ function RUN_MODEL_CMD {
         echo "model=$model is not supported"
         return
     fi
+    CMD="$CMD --seed $trial"
     echo $CMD
     eval $CMD
 }
 
-if [ $# -ne 3 ]; then
-    echo "Usage: ./model.sh <model> <data> <workload>"
+if [ $# -lt 3 ]; then
+    echo "Usage: ./model.sh <model> <data> <workload> <trial=0>"
 else
     RUN_MODEL_CMD
 fi
